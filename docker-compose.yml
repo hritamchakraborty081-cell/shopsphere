@@ -1,0 +1,70 @@
+# One-command local stack:  docker compose up --build
+# UNVERIFIED in the authoring sandbox (no Docker daemon). Copy .env.example to .env first.
+services:
+  db:
+    image: postgres:16.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shopsphere}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-shopsphere}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-shopsphere} -d ${POSTGRES_DB:-shopsphere}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Not published to the host: only the api/migrate containers on the private network can reach it.
+
+  migrate:
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: build }
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-shopsphere}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-shopsphere}
+    command: ['npx', 'prisma', 'migrate', 'deploy']
+    depends_on:
+      db: { condition: service_healthy }
+    restart: 'no'
+
+  seed:
+    profiles: ['seed'] # docker compose --profile seed run --rm seed
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: build }
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-shopsphere}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-shopsphere}
+      SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD:?Set SEED_DEMO_PASSWORD in .env}
+    command: ['npx', 'tsx', 'prisma/seed.ts']
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: runtime }
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${API_NODE_ENV:-development}
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-shopsphere}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-shopsphere}
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-8080}
+      APP_URL: http://localhost:${WEB_PORT:-8080}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      PAYMENT_PROVIDER: mock
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?Set PAYMENT_WEBHOOK_SECRET in .env}
+      ENABLE_DEV_OUTBOX: ${ENABLE_DEV_OUTBOX:-true}
+      ENABLE_DOCS: ${ENABLE_DOCS:-true}
+      TRUST_PROXY: 1
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    # Not published: reachable only through the web (nginx) container.
+
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://api:4000
+    ports:
+      - '${WEB_PORT:-8080}:8080'
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  pgdata:

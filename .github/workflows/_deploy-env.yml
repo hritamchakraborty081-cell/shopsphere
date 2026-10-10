@@ -1,0 +1,78 @@
+name: Deploy to environment (reusable)
+on:
+  workflow_call:
+    inputs:
+      environment: { required: true, type: string }
+      ref: { required: true, type: string }
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }} # per-environment variables, secrets and (for production) approvals
+    env:
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      REPO: ${{ vars.GCP_ARTIFACT_REPO }}
+      SUFFIX: ${{ inputs.environment }}
+      SHA: ${{ inputs.ref }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with: { ref: '${{ inputs.ref }}' }
+      - uses: google-github-actions/auth@v2.1.7
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2.1.2
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+      - name: Build and push images (tagged with the commit SHA)
+        run: |
+          API_IMG="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/api:${SHA}"
+          WEB_IMG="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/web:${SHA}"
+          MIG_IMG="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/migrate:${SHA}"
+          docker build -f apps/api/Dockerfile --target runtime -t "$API_IMG" .
+          docker build -f apps/api/Dockerfile --target build   -t "$MIG_IMG" .
+          docker build -f apps/web/Dockerfile                  -t "$WEB_IMG" .
+          docker push "$API_IMG" && docker push "$MIG_IMG" && docker push "$WEB_IMG"
+          echo "API_IMG=$API_IMG" >> "$GITHUB_ENV"; echo "WEB_IMG=$WEB_IMG" >> "$GITHUB_ENV"; echo "MIG_IMG=$MIG_IMG" >> "$GITHUB_ENV"
+      - name: Run database migrations (controlled release step; additive/expand-contract migrations only)
+        run: |
+          gcloud run jobs deploy "shopsphere-migrate-${SUFFIX}" --image "$MIG_IMG" --region "$REGION" \
+            --set-secrets DATABASE_URL="shopsphere-migrate-db-url-${SUFFIX}:latest" \
+            --set-cloudsql-instances "${PROJECT}:${REGION}:${{ vars.GCP_SQL_INSTANCE }}" \
+            --max-retries 0 --task-timeout 600 \
+            --command npx --args prisma,migrate,deploy
+          gcloud run jobs execute "shopsphere-migrate-${SUFFIX}" --region "$REGION" --wait
+      - name: Deploy API
+        run: |
+          # The web (nginx) service proxies /api to this service over its public URL, so it must accept unauthenticated
+          # HTTPS requests; the API protects itself (sessions, CSRF, CORS allow-list, rate limits). To make it private,
+          # add a VPC connector + internal ingress (see docs/deployment.md).
+          gcloud run deploy "shopsphere-api-${SUFFIX}" --image "$API_IMG" --region "$REGION" --allow-unauthenticated \
+            --port 4000 --min-instances 1 \
+            --set-env-vars "NODE_ENV=production,COOKIE_SECURE=true,PAYMENT_PROVIDER=mock,ENABLE_DEV_OUTBOX=false,ENABLE_DOCS=false,TRUST_PROXY=2,CORS_ORIGINS=${{ vars.PUBLIC_URL }},APP_URL=${{ vars.PUBLIC_URL }}" \
+            --set-secrets "DATABASE_URL=shopsphere-app-db-url-${SUFFIX}:latest,PAYMENT_WEBHOOK_SECRET=shopsphere-webhook-secret-${SUFFIX}:latest" \
+            --set-cloudsql-instances "${PROJECT}:${REGION}:${{ vars.GCP_SQL_INSTANCE }}"
+      - name: Deploy web
+        run: |
+          API_URL="$(gcloud run services describe "shopsphere-api-${SUFFIX}" --region "$REGION" --format 'value(status.url)')"
+          gcloud run deploy "shopsphere-web-${SUFFIX}" --image "$WEB_IMG" --region "$REGION" --allow-unauthenticated \
+            --port 8080 --set-env-vars "API_UPSTREAM=${API_URL}"
+      - name: Post-deployment smoke tests
+        run: |
+          set -euo pipefail
+          URL="${{ vars.PUBLIC_URL }}"
+          for i in 1 2 3 4 5 6; do curl -fsS "$URL/api/v1/ready" && break || sleep 10; done
+          curl -fsS "$URL/api/v1/health" | grep -q '"ok"'
+          curl -fsS "$URL/api/v1/products?pageSize=1" | grep -q '"items"'
+          curl -fsS "$URL/" | grep -qi 'ShopSphere'
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/v1/dev/outbox")" = "404"   # dev-only endpoint must not exist
+      - name: Roll back API on failure (route traffic to previous revision)
+        if: failure()
+        run: |
+          PREV="$(gcloud run revisions list --service "shopsphere-api-${SUFFIX}" --region "$REGION" --format 'value(name)' --limit 2 | tail -n 1)"
+          [ -n "$PREV" ] && gcloud run services update-traffic "shopsphere-api-${SUFFIX}" --region "$REGION" --to-revisions "$PREV=100" || true

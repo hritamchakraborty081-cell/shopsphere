@@ -1,0 +1,29 @@
+# Continuous deployment to Google Cloud Run using GitHub OIDC (Workload Identity Federation: no long-lived keys).
+# UNVERIFIED: never executed (no cloud account in the authoring sandbox). See docs/deployment.md for the exact
+# one-time setup (repository variables, Artifact Registry, Cloud SQL, Secret Manager, GitHub Environments).
+name: Deploy
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  release:
+    types: [published]
+permissions:
+  contents: read
+  id-token: write # required for OIDC
+
+jobs:
+  staging:
+    # Only after a SUCCESSFUL CI run on the protected main branch.
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    uses: ./.github/workflows/_deploy-env.yml
+    with: { environment: staging, ref: '${{ github.event.workflow_run.head_sha }}' }
+    secrets: inherit
+
+  production:
+    # Only from a published release; the `production` environment requires manual approval (configure reviewers).
+    if: github.event_name == 'release'
+    uses: ./.github/workflows/_deploy-env.yml
+    with: { environment: production, ref: '${{ github.sha }}' }
+    secrets: inherit

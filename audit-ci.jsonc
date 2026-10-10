@@ -1,0 +1,18 @@
+{
+  // Fail CI on any HIGH or CRITICAL advisory in production dependencies, except the reviewed ones below.
+  "high": true,
+  "omit": ["dev"],
+  "report-type": "important",
+  "allowlist": [
+    // Reviewed 2026-10: all three arrive ONLY through the `prisma` CLI (a devDependency of apps/api used for
+    // `migrate`/`generate`). The CLI is not installed in the runtime image (`npm ci --omit=dev`), the app uses
+    // PostgreSQL only (mysql2 is never loaded), and deepmerge-ts only merges our own prisma.config.ts.
+    // Re-review when Prisma publishes a release that updates these transitive dependencies.
+    "GHSA-ggr8-5vv4-36mx", // deepmerge-ts
+    "GHSA-3f6p-5ww8-9rcr", // mysql2 (auth plugin downgrade) - MySQL only
+    // Tailwind CSS 3 (build-time CSS generator, devDependency of apps/web) -> fast-glob/micromatch/chokidar -> braces.
+    // The ReDoS needs attacker-controlled glob patterns; ours are static in tailwind.config.js, and nothing from
+    // this chain is bundled into the shipped JS/CSS. Resolve by migrating to Tailwind 4 (tracked in docs/implementation-status.md).
+    "GHSA-vfj7-8cjw-p6xm", // braces
+  ],
+}

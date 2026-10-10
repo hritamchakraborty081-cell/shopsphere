@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img" aria-label="HydroMax 1L Steel Bottle">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(120 70% 92%)"/><stop offset="1" stop-color="hsl(160 65% 78%)"/></linearGradient></defs>
+<rect width="600" height="600" fill="url(#g)"/>
+<circle cx="300" cy="270" r="150" fill="hsl(120 55% 38%)" opacity="0.9"/>
+<text x="300" y="305" font-family="Arial, Helvetica, sans-serif" font-size="110" font-weight="700" text-anchor="middle" fill="#fff">HS</text>
+<text x="300" y="500" font-family="Arial, Helvetica, sans-serif" font-size="30" text-anchor="middle" fill="hsl(120 45% 22%)">HydroMax</text>
+</svg>
