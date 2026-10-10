@@ -66,7 +66,7 @@ jobs:
         run: npm run db:drift-check -w @shopsphere/api
       - name: Integration tests with coverage
         run: npm run test:coverage -w @shopsphere/api
-      - uses: actions/upload-artifact@v4.5.0
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with: { name: api-coverage, path: apps/api/coverage, retention-days: 7 }
 
@@ -97,7 +97,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
         working-directory: e2e
       - run: npm run test:e2e
-      - uses: actions/upload-artifact@v4.5.0
+      - uses: actions/upload-artifact@v7.0.2
         if: failure()
         with:
           name: playwright-report
