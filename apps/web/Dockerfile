@@ -13,7 +13,7 @@ COPY apps/web apps/web
 RUN npm run build -w @shopsphere/shared && npm run build -w @shopsphere/web
 
 # Unprivileged nginx (runs as uid 101, listens on 8080). Config is templated with $API_UPSTREAM.
-FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.31-alpine AS runtime
 ENV API_UPSTREAM=http://api:4000
 COPY infra/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
