@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-node@v4.1.0
+      - uses: actions/setup-node@v7.1.0
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
       - run: npm run format:check
@@ -55,7 +55,7 @@ jobs:
       PAYMENT_WEBHOOK_SECRET: ci_only_webhook_secret_0123456789abcdef
     steps:
       - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-node@v4.1.0
+      - uses: actions/setup-node@v7.1.0
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
       - run: npm run build:shared && npm run generate
@@ -90,7 +90,7 @@ jobs:
       E2E_DATABASE_URL: postgresql://shopsphere:ci_only_password@localhost:5432/shopsphere_e2e
     steps:
       - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-node@v4.1.0
+      - uses: actions/setup-node@v7.1.0
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci
       - run: npm run build:shared && npm run generate && npm run build -w @shopsphere/web
@@ -112,7 +112,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-node@v4.1.0
+      - uses: actions/setup-node@v7.1.0
         with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
       - run: npm ci --ignore-scripts
       - name: Dependency audit (fails on HIGH/CRITICAL; reviewed allowlist in audit-ci.jsonc)
